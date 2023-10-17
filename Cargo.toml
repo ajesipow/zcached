@@ -17,10 +17,6 @@ path = "src/server.rs"
 name = "client"
 path = "src/client.rs"
 
-[[bench]]
-name = "server"
-harness = false
-
 [dependencies]
 bytes = "1.5.0"
 

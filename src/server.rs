@@ -30,7 +30,7 @@ fn read_request<RW>(
     let mut cursor = 0;
 
     loop {
-        if let Some((request, n_parsed_bytes)) = parse_request(&mut buffer[0..cursor]) {
+        if let Some((request, n_parsed_bytes)) = parse_request(&buffer[0..cursor]) {
             match request {
                 Request::Get(key) => {
                     let v = db.get(key);
@@ -79,7 +79,6 @@ fn read_request<RW>(
         let n_bytes_read = stream.read(&mut buffer[cursor..read_end]).unwrap();
         if n_bytes_read == 0 {
             return if cursor == 0 {
-                ()
             } else {
                 panic!("connection reset by peer");
             };

@@ -90,6 +90,6 @@ fn read_element<'a>(
     }
     let element_bytes = &input[*cursor..element_end];
     *cursor += element_size;
-    let element = from_utf8(&element_bytes).unwrap();
+    let element = from_utf8(element_bytes).unwrap();
     Some(element)
 }
