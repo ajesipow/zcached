@@ -68,7 +68,10 @@ pub fn serialize_request(request: Request) -> Vec<u8> {
 }
 
 /// Reads an element (key or value) from the buffer and advances the cursor.
-fn read_element<'a>(input: &'a [u8], cursor: &mut usize) -> Option<&'a str> {
+fn read_element<'a>(
+    input: &'a [u8],
+    cursor: &mut usize,
+) -> Option<&'a str> {
     let element_size_len = 4;
     // check enough bytes in input
     let element_size_end = *cursor + element_size_len;

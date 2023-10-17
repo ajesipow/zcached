@@ -1,13 +1,15 @@
 use std::collections::HashMap;
-use std::io::{Read, Write};
-use std::net::{TcpListener};
-use zcached::{parse_request, Request};
+use std::io::Read;
+use std::io::Write;
+use std::net::TcpListener;
+
+use zcached::parse_request;
+use zcached::Request;
 
 #[cfg(not(test))]
 const INITIAL_BUFFER_SIZE: usize = 4096;
 #[cfg(test)]
 const INITIAL_BUFFER_SIZE: usize = 32;
-
 
 // The buffer can be resized as long as it is < MAX_BUFFER_SIZE.
 // If the client requests too much data, we reject the request.
@@ -18,8 +20,10 @@ const MAX_BUFFER_SIZE: usize = 93;
 
 type DB = HashMap<String, String>;
 
-fn read_request<RW>(stream: &mut RW, db: &mut DB)
-where
+fn read_request<RW>(
+    stream: &mut RW,
+    db: &mut DB,
+) where
     RW: Read + Write + ?Sized,
 {
     let mut buffer = vec![0; INITIAL_BUFFER_SIZE];
@@ -59,16 +63,15 @@ where
             }
             continue;
         }
-        
+
         if buffer.len() >= MAX_BUFFER_SIZE {
             // TODO send error response
             send_response(stream);
-            break
+            break;
         }
 
         if buffer.len() == cursor {
             buffer.resize(buffer.capacity() * 2, 0);
-            
         }
 
         // Handle the case where there is still a frame in the buffer
@@ -116,7 +119,10 @@ fn main() {
 mod test {
     use std::collections::HashMap;
     use std::io::Cursor;
-    use crate::{INITIAL_BUFFER_SIZE, MAX_BUFFER_SIZE, read_request};
+
+    use crate::read_request;
+    use crate::INITIAL_BUFFER_SIZE;
+    use crate::MAX_BUFFER_SIZE;
 
     #[test]
     fn test_read_request_single_request_in_stream() {
@@ -128,12 +134,15 @@ mod test {
         read_request(&mut stream, &mut db);
         assert_eq!(db.get("abc").unwrap(), "ghi");
     }
-    
+
     #[test]
     fn test_read_request_multiple_requests_in_stream() {
         let mut db: HashMap<String, String> = HashMap::new();
         // Two concatenated requests
-        let raw_data = vec![2, 0, 0, 0, 3, 97, 98, 99, 0, 0, 0, 3, 103, 104, 105, 2, 0, 0, 0, 3, 49, 50, 51, 0, 0, 0, 3, 52, 53, 54];
+        let raw_data = vec![
+            2, 0, 0, 0, 3, 97, 98, 99, 0, 0, 0, 3, 103, 104, 105, 2, 0, 0, 0, 3, 49, 50, 51, 0, 0,
+            0, 3, 52, 53, 54,
+        ];
         assert!(raw_data.len() < INITIAL_BUFFER_SIZE);
         assert!(raw_data.len() < 2 * MAX_BUFFER_SIZE);
         let mut stream = Cursor::new(raw_data);
@@ -141,26 +150,51 @@ mod test {
         assert_eq!(db.get("abc").unwrap(), "ghi");
         assert_eq!(db.get("123").unwrap(), "456");
     }
-    
+
     #[test]
     fn test_read_single_request_larger_than_initial_buffer() {
         let mut db: HashMap<String, String> = HashMap::new();
         // Two concatenated requests
-        let raw_data = vec![2, 0, 0, 0, 3, 49, 50, 51, 0, 0, 0, 67, 84, 104, 105, 115, 32, 105, 115, 32, 115, 111, 109, 101, 32, 108, 111, 110, 103, 101, 114, 32, 116, 101, 120, 116, 32, 116, 104, 97, 116, 32, 100, 105, 100, 32, 110, 111, 116, 32, 102, 105, 116, 32, 105, 110, 116, 111, 32, 97, 32, 115, 105, 110, 103, 108, 101, 32, 84, 67, 80, 32, 114, 101, 113, 117, 101, 115, 116];
+        let raw_data = vec![
+            2, 0, 0, 0, 3, 49, 50, 51, 0, 0, 0, 67, 84, 104, 105, 115, 32, 105, 115, 32, 115, 111,
+            109, 101, 32, 108, 111, 110, 103, 101, 114, 32, 116, 101, 120, 116, 32, 116, 104, 97,
+            116, 32, 100, 105, 100, 32, 110, 111, 116, 32, 102, 105, 116, 32, 105, 110, 116, 111,
+            32, 97, 32, 115, 105, 110, 103, 108, 101, 32, 84, 67, 80, 32, 114, 101, 113, 117, 101,
+            115, 116,
+        ];
         assert!(raw_data.len() > INITIAL_BUFFER_SIZE);
         assert!(raw_data.len() < 2 * MAX_BUFFER_SIZE);
         let mut stream = Cursor::new(raw_data);
         read_request(&mut stream, &mut db);
-        assert_eq!(db.get("123").unwrap(), "This is some longer text that did not fit into a single TCP request");
+        assert_eq!(
+            db.get("123").unwrap(),
+            "This is some longer text that did not fit into a single TCP request"
+        );
     }
-    
+
     #[test]
     fn test_max_buffer_resize_is_respected() {
         let mut db: HashMap<String, String> = HashMap::new();
         // Two concatenated requests
-        let raw_data = vec![2, 0, 0, 0, 3, 49, 50, 51, 0, 0, 0, 186, 84, 104, 105, 115, 32, 105, 115, 32, 115, 111, 109, 101, 32, 108, 111, 110, 103, 101, 114, 32, 116, 101, 120, 116, 32, 116, 104, 97, 116, 32, 100, 105, 100, 32, 110, 111, 116, 32, 102, 105, 116, 32, 105, 110, 116, 111, 32, 97, 32, 115, 105, 110, 103, 108, 101, 32, 84, 67, 80, 32, 114, 101, 113, 117, 101, 115, 116, 46, 32, 84, 104, 105, 115, 32, 105, 115, 32, 97, 110, 32, 101, 118, 101, 110, 32, 108, 111, 110, 103, 101, 114, 32, 116, 101, 120, 116, 32, 102, 111, 114, 32, 116, 101, 115, 116, 105, 110, 103, 32, 116, 104, 101, 32, 114, 101, 115, 105, 122, 105, 110, 103, 32, 111, 102, 32, 116, 104, 101, 32, 98, 117, 102, 102, 101, 114, 46, 32, 84, 104, 101, 114, 101, 32, 105, 115, 32, 101, 118, 101, 110, 32, 109, 111, 114, 101, 32, 100, 97, 116, 97, 32, 105, 110, 32, 104, 101, 114, 101, 32, 110, 111, 119, 46, 32, 76, 111, 111, 107, 32, 97, 116, 32, 116, 104, 97, 116];
+        let raw_data = vec![
+            2, 0, 0, 0, 3, 49, 50, 51, 0, 0, 0, 186, 84, 104, 105, 115, 32, 105, 115, 32, 115, 111,
+            109, 101, 32, 108, 111, 110, 103, 101, 114, 32, 116, 101, 120, 116, 32, 116, 104, 97,
+            116, 32, 100, 105, 100, 32, 110, 111, 116, 32, 102, 105, 116, 32, 105, 110, 116, 111,
+            32, 97, 32, 115, 105, 110, 103, 108, 101, 32, 84, 67, 80, 32, 114, 101, 113, 117, 101,
+            115, 116, 46, 32, 84, 104, 105, 115, 32, 105, 115, 32, 97, 110, 32, 101, 118, 101, 110,
+            32, 108, 111, 110, 103, 101, 114, 32, 116, 101, 120, 116, 32, 102, 111, 114, 32, 116,
+            101, 115, 116, 105, 110, 103, 32, 116, 104, 101, 32, 114, 101, 115, 105, 122, 105, 110,
+            103, 32, 111, 102, 32, 116, 104, 101, 32, 98, 117, 102, 102, 101, 114, 46, 32, 84, 104,
+            101, 114, 101, 32, 105, 115, 32, 101, 118, 101, 110, 32, 109, 111, 114, 101, 32, 100,
+            97, 116, 97, 32, 105, 110, 32, 104, 101, 114, 101, 32, 110, 111, 119, 46, 32, 76, 111,
+            111, 107, 32, 97, 116, 32, 116, 104, 97, 116,
+        ];
         assert!(raw_data.len() > INITIAL_BUFFER_SIZE);
-        assert!(raw_data.len() > 2 * MAX_BUFFER_SIZE, "data len is {}", raw_data.len());
+        assert!(
+            raw_data.len() > 2 * MAX_BUFFER_SIZE,
+            "data len is {}",
+            raw_data.len()
+        );
         let mut stream = Cursor::new(raw_data);
         read_request(&mut stream, &mut db);
         assert!(db.get("123").is_none());
