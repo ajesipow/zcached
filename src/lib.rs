@@ -14,6 +14,8 @@ pub fn parse_request(input: &[u8]) -> Option<(Request<'_>, usize)> {
     let op_code = input.get(cursor)?;
     cursor += 1;
 
+    // We don't use 0 as opcode as we're using 0-initialised buffers in the server which would
+    // lead to wrong parsing.
     let request = match &op_code {
         1 => {
             let key = read_element(input, &mut cursor)?;
@@ -37,25 +39,23 @@ pub fn parse_request(input: &[u8]) -> Option<(Request<'_>, usize)> {
 pub fn serialize_request(request: Request) -> Vec<u8> {
     match request {
         Request::Get(key) => {
-            let mut data = vec![];
+            let mut data = Vec::with_capacity(key.len() + 5);
             data.push(1);
             data.extend((key.len() as u32).to_be_bytes());
             data.extend(key.as_bytes());
-            println!("{:?}", data);
             data
         }
         Request::Set { key, value } => {
-            let mut data = vec![];
+            let mut data = Vec::with_capacity(key.len() + value.len() + 9);
             data.push(2);
             data.extend((key.len() as u32).to_be_bytes());
             data.extend(key.as_bytes());
             data.extend((value.len() as u32).to_be_bytes());
             data.extend(value.as_bytes());
-            println!("{:?}", data);
             data
         }
         Request::Delete(key) => {
-            let mut data = vec![];
+            let mut data = Vec::with_capacity(key.len() + 5);
             data.push(3);
             data.extend((key.len() as u32).to_be_bytes());
             data.extend(key.as_bytes());
