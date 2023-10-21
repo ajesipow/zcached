@@ -2,9 +2,10 @@ use std::collections::HashMap;
 use std::io::Read;
 use std::io::Write;
 use std::net::TcpListener;
+use std::net::ToSocketAddrs;
 
-use zcached::parse_request;
-use zcached::Request;
+use crate::parse_request;
+use crate::Request;
 
 #[cfg(not(test))]
 const INITIAL_BUFFER_SIZE: usize = 4096;
@@ -35,6 +36,41 @@ enum ServerError {
     ConnectionResetByPeer,
 }
 
+/// A basic in-memory database server.
+pub struct Server {
+    listener: TcpListener,
+    db: DB,
+}
+
+impl Server {
+    /// Creates a new server.
+    /// Panics when it cannot bind to `addr`.
+    pub fn new<A>(addr: A) -> Self
+    where
+        A: ToSocketAddrs,
+    {
+        let listener = TcpListener::bind(addr).expect("to be able to bind to address");
+        Self {
+            listener,
+            db: HashMap::with_capacity(1024),
+        }
+    }
+
+    /// Runs the server.
+    pub fn run(mut self) {
+        for stream in self.listener.incoming() {
+            match stream {
+                Ok(mut stream) => {
+                    let _ = handle_connection(&mut stream, &mut self.db);
+                }
+                Err(e) => {
+                    println!("Could not read incoming stream: {:?}", e);
+                }
+            }
+        }
+    }
+}
+
 fn handle_connection<RW>(
     stream: &mut RW,
     db: &mut DB,
@@ -50,22 +86,18 @@ where
             let _response = match request {
                 Request::Get(key) => {
                     let v = db.get(key);
-                    println!("GET {}: {:?}", key, v);
                     Response::Get(v)
                 }
                 Request::Set { key, value } => {
                     db.insert(key.to_string(), value.to_string());
-                    println!("SET {} {}", key, value);
                     Response::Set
                 }
                 Request::Delete(key) => {
                     db.remove(key);
-                    println!("DEL {}", key);
                     Response::Delete
                 }
                 Request::Flush => {
                     db.clear();
-                    println!("FLUSH");
                     Response::Flush
                 }
             };
@@ -112,33 +144,15 @@ where
     stream.flush().unwrap();
 }
 
-fn main() {
-    let listener = TcpListener::bind("127.0.0.1:7891").unwrap();
-    let mut db: DB = HashMap::new();
-
-    for stream in listener.incoming() {
-        println!("New stream!");
-        match stream {
-            Ok(mut stream) => {
-                let _ = handle_connection(&mut stream, &mut db);
-            }
-            Err(e) => {
-                println!("Could not read incoming stream: {:?}", e);
-            }
-        }
-        println!("Done");
-    }
-}
-
 #[cfg(test)]
 mod test {
     use std::collections::HashMap;
     use std::io::Cursor;
 
-    use crate::handle_connection;
-    use crate::ServerError;
-    use crate::INITIAL_BUFFER_SIZE;
-    use crate::MAX_BUFFER_SIZE;
+    use super::handle_connection;
+    use super::ServerError;
+    use super::INITIAL_BUFFER_SIZE;
+    use super::MAX_BUFFER_SIZE;
 
     #[test]
     fn test_read_request_single_request_in_stream() {

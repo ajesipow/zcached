@@ -1,4 +1,10 @@
+mod client;
+mod server;
+
 use std::str::from_utf8;
+
+pub use client::Client;
+pub use server::Server;
 
 pub enum Request<'a> {
     Get(&'a str),

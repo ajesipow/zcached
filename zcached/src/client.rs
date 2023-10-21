@@ -2,10 +2,9 @@ use std::io::Read;
 use std::io::Write;
 use std::net::TcpStream;
 use std::net::ToSocketAddrs;
-use std::str::from_utf8;
 
-use zcached::serialize_request;
-use zcached::Request;
+use crate::serialize_request;
+use crate::Request;
 
 pub struct Client {
     stream: TcpStream,
@@ -60,16 +59,6 @@ impl Client {
         self.stream.write_all(&request_bytes).unwrap();
         self.stream.flush().unwrap();
         let mut response_bytes = [0; 2];
-        let n_bytes_read = self.stream.read(&mut response_bytes).unwrap();
-        println!("Read {} bytes", n_bytes_read);
-        println!("response: {}", from_utf8(&response_bytes).unwrap());
+        let _ = self.stream.read(&mut response_bytes).unwrap();
     }
-}
-
-fn main() {
-    let mut client = Client::connect("127.0.0.1:7891");
-
-    client.get("abc");
-    client.set("abc", "ghi");
-    client.set("123", "This is some longer text that did not fit into a single TCP request. This is an even longer text for testing the resizing of the buffer. There is even more data in here now. Look at that");
 }
