@@ -3,6 +3,9 @@ use std::io::Read;
 use std::io::Write;
 use std::net::TcpListener;
 use std::net::ToSocketAddrs;
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::thread;
 
 use crate::parse_request;
 use crate::Request;
@@ -34,12 +37,13 @@ enum Response<'a> {
 enum ServerError {
     TooMuchData,
     ConnectionResetByPeer,
+    DbLock,
 }
 
 /// A basic in-memory database server.
 pub struct Server {
     listener: TcpListener,
-    db: DB,
+    db: Arc<Mutex<DB>>,
 }
 
 impl Server {
@@ -52,28 +56,29 @@ impl Server {
         let listener = TcpListener::bind(addr).expect("to be able to bind to address");
         Self {
             listener,
-            db: HashMap::with_capacity(1024),
+            db: Arc::new(Mutex::new(HashMap::with_capacity(1024))),
         }
     }
 
     /// Runs the server.
-    pub fn run(mut self) {
+    pub fn run(&self) {
         for stream in self.listener.incoming() {
-            match stream {
+            let db_clone = self.db.clone();
+            thread::spawn(move || match stream {
                 Ok(mut stream) => {
-                    let _ = handle_connection(&mut stream, &mut self.db);
+                    let _ = handle_connection(&mut stream, db_clone);
                 }
                 Err(e) => {
                     println!("Could not read incoming stream: {:?}", e);
                 }
-            }
+            });
         }
     }
 }
 
 fn handle_connection<RW>(
     stream: &mut RW,
-    db: &mut DB,
+    db: Arc<Mutex<DB>>,
 ) -> Result<(), ServerError>
 where
     RW: Read + Write + ?Sized,
@@ -83,21 +88,22 @@ where
 
     loop {
         if let Some((request, n_parsed_bytes)) = parse_request(&buffer[0..cursor]) {
+            let mut db_lock = db.try_lock().map_err(|_| ServerError::DbLock)?;
             let _response = match request {
                 Request::Get(key) => {
-                    let v = db.get(key);
+                    let v = db_lock.get(key);
                     Response::Get(v)
                 }
                 Request::Set { key, value } => {
-                    db.insert(key.to_string(), value.to_string());
+                    db_lock.insert(key.to_string(), value.to_string());
                     Response::Set
                 }
                 Request::Delete(key) => {
-                    db.remove(key);
+                    db_lock.remove(key);
                     Response::Delete
                 }
                 Request::Flush => {
-                    db.clear();
+                    db_lock.clear();
                     Response::Flush
                 }
             };
@@ -148,6 +154,8 @@ where
 mod test {
     use std::collections::HashMap;
     use std::io::Cursor;
+    use std::sync::Arc;
+    use std::sync::Mutex;
 
     use super::handle_connection;
     use super::ServerError;
@@ -156,18 +164,18 @@ mod test {
 
     #[test]
     fn test_read_request_single_request_in_stream() {
-        let mut db: HashMap<String, String> = HashMap::new();
+        let db: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(HashMap::new()));
         let raw_data = vec![2, 0, 0, 0, 3, 97, 98, 99, 0, 0, 0, 3, 103, 104, 105];
         assert!(raw_data.len() < INITIAL_BUFFER_SIZE);
         assert!(raw_data.len() < 2 * MAX_BUFFER_SIZE);
         let mut stream = Cursor::new(raw_data);
-        let _ = handle_connection(&mut stream, &mut db);
-        assert_eq!(db.get("abc").unwrap(), "ghi");
+        let _ = handle_connection(&mut stream, db.clone());
+        assert_eq!(db.lock().unwrap().get("abc").unwrap(), "ghi");
     }
 
     #[test]
     fn test_read_request_multiple_requests_in_stream() {
-        let mut db: HashMap<String, String> = HashMap::new();
+        let db: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(HashMap::new()));
         // Two concatenated requests
         let raw_data = vec![
             2, 0, 0, 0, 3, 97, 98, 99, 0, 0, 0, 3, 103, 104, 105, 2, 0, 0, 0, 3, 49, 50, 51, 0, 0,
@@ -176,14 +184,14 @@ mod test {
         assert!(raw_data.len() < INITIAL_BUFFER_SIZE);
         assert!(raw_data.len() < 2 * MAX_BUFFER_SIZE);
         let mut stream = Cursor::new(raw_data);
-        let _ = handle_connection(&mut stream, &mut db);
-        assert_eq!(db.get("abc").unwrap(), "ghi");
-        assert_eq!(db.get("123").unwrap(), "456");
+        let _ = handle_connection(&mut stream, db.clone());
+        assert_eq!(db.lock().unwrap().get("abc").unwrap(), "ghi");
+        assert_eq!(db.lock().unwrap().get("123").unwrap(), "456");
     }
 
     #[test]
     fn test_read_single_request_larger_than_initial_buffer() {
-        let mut db: HashMap<String, String> = HashMap::new();
+        let db: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(HashMap::new()));
         // Two concatenated requests
         let raw_data = vec![
             2, 0, 0, 0, 3, 49, 50, 51, 0, 0, 0, 67, 84, 104, 105, 115, 32, 105, 115, 32, 115, 111,
@@ -195,16 +203,16 @@ mod test {
         assert!(raw_data.len() > INITIAL_BUFFER_SIZE);
         assert!(raw_data.len() < 2 * MAX_BUFFER_SIZE);
         let mut stream = Cursor::new(raw_data);
-        let _ = handle_connection(&mut stream, &mut db);
+        let _ = handle_connection(&mut stream, db.clone());
         assert_eq!(
-            db.get("123").unwrap(),
+            db.lock().unwrap().get("123").unwrap(),
             "This is some longer text that did not fit into a single TCP request"
         );
     }
 
     #[test]
     fn test_max_buffer_resize_is_respected() {
-        let mut db: HashMap<String, String> = HashMap::new();
+        let db: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(HashMap::new()));
         // Two concatenated requests
         let raw_data = vec![
             2, 0, 0, 0, 3, 49, 50, 51, 0, 0, 0, 186, 84, 104, 105, 115, 32, 105, 115, 32, 115, 111,
@@ -227,7 +235,7 @@ mod test {
         );
         let mut stream = Cursor::new(raw_data);
         assert_eq!(
-            handle_connection(&mut stream, &mut db).err(),
+            handle_connection(&mut stream, db).err(),
             Some(ServerError::TooMuchData)
         );
     }
