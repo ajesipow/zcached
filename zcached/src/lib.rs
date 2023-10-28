@@ -1,10 +1,15 @@
 mod client;
+mod error;
 mod server;
 
 use std::str::from_utf8;
 
 pub use client::Client;
+use error::Result;
 pub use server::Server;
+use tracing::debug;
+
+use crate::error::ParsingError;
 
 #[derive(Debug)]
 enum Response<'a> {
@@ -21,8 +26,6 @@ pub enum Request<'a> {
     Flush,
 }
 
-// TODO Error handling
-
 pub(crate) fn parse_request(input: &[u8]) -> Option<(Request<'_>, usize)> {
     let mut cursor = 0;
     let op_code = input.get(cursor)?;
@@ -32,16 +35,16 @@ pub(crate) fn parse_request(input: &[u8]) -> Option<(Request<'_>, usize)> {
     // lead to wrong parsing.
     let request = match &op_code {
         1 => {
-            let key = read_element(input, &mut cursor)?;
+            let key = read_element(input, &mut cursor).unwrap()?;
             Request::Get(key)
         }
         2 => {
-            let key = read_element(input, &mut cursor)?;
-            let value = read_element(input, &mut cursor)?;
+            let key = read_element(input, &mut cursor).unwrap()?;
+            let value = read_element(input, &mut cursor).unwrap()?;
             Request::Set { key, value }
         }
         3 => {
-            let key = read_element(input, &mut cursor)?;
+            let key = read_element(input, &mut cursor).unwrap()?;
             Request::Delete(key)
         }
         4 => Request::Flush,
@@ -59,7 +62,7 @@ pub(crate) fn parse_response(input: &[u8]) -> Option<Response<'_>> {
     // lead to wrong parsing.
     let response = match &op_code {
         1 => {
-            let key = read_element(input, &mut cursor);
+            let key = read_element(input, &mut cursor).unwrap();
             Response::Get(key)
         }
         2 => Response::Set,
@@ -130,25 +133,28 @@ pub(crate) fn serialize_response(response: Response) -> Vec<u8> {
 fn read_element<'a>(
     input: &'a [u8],
     cursor: &mut usize,
-) -> Option<&'a str> {
+) -> Result<Option<&'a str>> {
+    // We serialized the element's length with 4 bytes
     let element_size_len = 4;
-    // check enough bytes in input
+    // Check that enough bytes are in input
     let element_size_end = *cursor + element_size_len;
     if input.len() < element_size_end {
-        println!("not enough data for reading element size");
-        return None;
+        debug!("not enough data for reading element size");
+        return Ok(None);
     }
-    let element_size =
-        u32::from_be_bytes(input[*cursor..element_size_end].try_into().unwrap()) as usize;
+    let bytes = input[*cursor..element_size_end]
+        .try_into()
+        .map_err(|_| ParsingError::Other)?;
+    let element_size = u32::from_be_bytes(bytes) as usize;
     *cursor = element_size_end;
-    // check enough bytes in input
+    // Check that enough bytes are in input
     let element_end = *cursor + element_size;
     if input.len() < element_end {
-        println!("not enough data for reading full element");
-        return None;
+        debug!("not enough data for reading full element");
+        return Ok(None);
     }
     let element_bytes = &input[*cursor..element_end];
     *cursor += element_size;
-    let element = from_utf8(element_bytes).unwrap();
-    Some(element)
+    let element = from_utf8(element_bytes).map_err(ParsingError::from)?;
+    Ok(Some(element))
 }
