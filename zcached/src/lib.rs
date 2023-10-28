@@ -6,6 +6,14 @@ use std::str::from_utf8;
 pub use client::Client;
 pub use server::Server;
 
+#[derive(Debug)]
+enum Response<'a> {
+    Get(Option<&'a str>),
+    Set,
+    Delete,
+    Flush,
+}
+
 pub enum Request<'a> {
     Get(&'a str),
     Set { key: &'a str, value: &'a str },
@@ -15,7 +23,7 @@ pub enum Request<'a> {
 
 // TODO Error handling
 
-pub fn parse_request(input: &[u8]) -> Option<(Request<'_>, usize)> {
+pub(crate) fn parse_request(input: &[u8]) -> Option<(Request<'_>, usize)> {
     let mut cursor = 0;
     let op_code = input.get(cursor)?;
     cursor += 1;
@@ -42,7 +50,27 @@ pub fn parse_request(input: &[u8]) -> Option<(Request<'_>, usize)> {
     Some((request, cursor))
 }
 
-pub fn serialize_request(request: Request) -> Vec<u8> {
+pub(crate) fn parse_response(input: &[u8]) -> Option<Response<'_>> {
+    let mut cursor = 0;
+    let op_code = input.get(cursor)?;
+    cursor += 1;
+
+    // We don't use 0 as opcode as we're using 0-initialised buffers in the server which would
+    // lead to wrong parsing.
+    let response = match &op_code {
+        1 => {
+            let key = read_element(input, &mut cursor);
+            Response::Get(key)
+        }
+        2 => Response::Set,
+        3 => Response::Delete,
+        4 => Response::Flush,
+        _ => return None,
+    };
+    Some(response)
+}
+
+pub(crate) fn serialize_request(request: Request) -> Vec<u8> {
     match request {
         Request::Get(key) => {
             let mut data = Vec::with_capacity(key.len() + 5);
@@ -68,6 +96,31 @@ pub fn serialize_request(request: Request) -> Vec<u8> {
             data
         }
         Request::Flush => {
+            vec![4]
+        }
+    }
+}
+
+pub(crate) fn serialize_response(response: Response) -> Vec<u8> {
+    match response {
+        Response::Get(maybe_key) => {
+            let key_len = maybe_key.map(|k| k.len()).unwrap_or(0);
+            // Reserve enough space so we don't have to reallocate
+            let mut data = Vec::with_capacity(key_len + 5);
+            data.push(1);
+            if let Some(key) = maybe_key {
+                data.extend((key.len() as u32).to_be_bytes());
+                data.extend(key.as_bytes());
+            }
+            data
+        }
+        Response::Set => {
+            vec![2]
+        }
+        Response::Delete => {
+            vec![3]
+        }
+        Response::Flush => {
             vec![4]
         }
     }

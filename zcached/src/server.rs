@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::io;
 use std::io::Read;
 use std::io::Write;
 use std::net::TcpListener;
@@ -8,7 +9,9 @@ use std::sync::Mutex;
 use std::thread;
 
 use crate::parse_request;
+use crate::serialize_response;
 use crate::Request;
+use crate::Response;
 
 #[cfg(not(test))]
 const INITIAL_BUFFER_SIZE: usize = 4096;
@@ -25,19 +28,12 @@ const MAX_BUFFER_SIZE: usize = 93;
 type DB = HashMap<String, String>;
 
 #[derive(Debug)]
-enum Response<'a> {
-    Get(Option<&'a String>),
-    Set,
-    Delete,
-    Flush,
-}
-
-#[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq))]
 enum ServerError {
     TooMuchData,
     ConnectionResetByPeer,
     DbLock,
+    IO,
 }
 
 /// A basic in-memory database server.
@@ -89,10 +85,10 @@ where
     loop {
         if let Some((request, n_parsed_bytes)) = parse_request(&buffer[0..cursor]) {
             let mut db_lock = db.try_lock().map_err(|_| ServerError::DbLock)?;
-            let _response = match request {
+            let response = match request {
                 Request::Get(key) => {
                     let v = db_lock.get(key);
-                    Response::Get(v)
+                    Response::Get(v.map(|s| s.as_str()))
                 }
                 Request::Set { key, value } => {
                     db_lock.insert(key.to_string(), value.to_string());
@@ -107,6 +103,9 @@ where
                     Response::Flush
                 }
             };
+            send_response(stream, response).map_err(|_| ServerError::IO)?;
+            drop(db_lock);
+
             if n_parsed_bytes <= cursor {
                 // We parsed less data than there is in the buffer.
                 // Move the remaining bytes in the buffer that were not parsed yet to the front.
@@ -115,7 +114,6 @@ where
                 buffer.copy_within(n_parsed_bytes..cursor, 0);
                 cursor -= n_parsed_bytes;
             }
-            send_response(stream);
             continue;
         }
 
@@ -142,12 +140,16 @@ where
     }
 }
 
-fn send_response<W>(stream: &mut W)
+fn send_response<W>(
+    stream: &mut W,
+    response: Response,
+) -> io::Result<()>
 where
     W: Write + ?Sized,
 {
-    stream.write_all("OK".as_bytes()).unwrap();
-    stream.flush().unwrap();
+    let bytes = serialize_response(response);
+    stream.write_all(&bytes)?;
+    stream.flush()
 }
 
 #[cfg(test)]
