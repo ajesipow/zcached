@@ -7,20 +7,12 @@ use crate::parse_response;
 use crate::serialize_request;
 use crate::Request;
 
-#[cfg(not(test))]
-const INITIAL_BUFFER_SIZE: usize = 4096;
-#[cfg(test)]
-const INITIAL_BUFFER_SIZE: usize = 32;
-
-// The buffer can be resized as long as it is < MAX_BUFFER_SIZE.
-// If the client requests too much data, we reject the request.
-#[cfg(not(test))]
-const MAX_BUFFER_SIZE: usize = 1024 * 1024; // 1MB
-#[cfg(test)]
-const MAX_BUFFER_SIZE: usize = 93;
-
 pub struct Client {
     stream: TcpStream,
+    init_buffer_size: usize,
+    // The buffer can be resized as long as it is < max_buffer_size.
+    // If the server sends too much data, we reject the response.
+    max_buffer_size: usize,
 }
 
 impl Client {
@@ -28,9 +20,24 @@ impl Client {
     where
         A: ToSocketAddrs,
     {
-        // TODO handle Err
         Self {
             stream: TcpStream::connect(addr).unwrap(),
+            init_buffer_size: 4096,
+            max_buffer_size: 1024 * 1024,
+        }
+    }
+
+    pub fn connect_with_max_buffer_size<A>(
+        addr: A,
+        max_buffer_size: usize,
+    ) -> Self
+    where
+        A: ToSocketAddrs,
+    {
+        Self {
+            stream: TcpStream::connect(addr).unwrap(),
+            init_buffer_size: 4096,
+            max_buffer_size,
         }
     }
 
@@ -40,7 +47,12 @@ impl Client {
     ) {
         let request = Request::Get(key);
         self.send_request(request);
-        self.receive_response().unwrap();
+        receive_response(
+            &mut self.stream,
+            self.init_buffer_size,
+            self.max_buffer_size,
+        )
+        .unwrap();
     }
 
     pub fn set(
@@ -73,26 +85,30 @@ impl Client {
         self.stream.write_all(&request_bytes).unwrap();
         self.stream.flush().unwrap();
     }
+}
 
-    fn receive_response(&mut self) -> Result<(), ()> {
-        let mut buffer = vec![0; INITIAL_BUFFER_SIZE];
-        loop {
-            let bytes_read = self.stream.read(&mut buffer).map_err(|_| ())?;
-            if let Some(response) = parse_response(&buffer) {
-                println!("response: {:?}", response);
-                return Ok(());
-            }
-            if bytes_read == 0 {
-                // Connection reset by peer:
-                // No more bytes were read but we still could not parse the response
-                return Err(());
-            }
-            if buffer.len() == buffer.capacity() {
-                buffer.resize(buffer.capacity() * 2, 0);
-            }
-            if buffer.len() >= MAX_BUFFER_SIZE {
-                return Err(());
-            }
+fn receive_response<R: Read>(
+    stream: &mut R,
+    init_buffer_size: usize,
+    max_buffer_size: usize,
+) -> Result<(), ()> {
+    let mut buffer = vec![0; init_buffer_size];
+    loop {
+        let bytes_read = stream.read(&mut buffer).map_err(|_| ())?;
+        if let Some(response) = parse_response(&buffer) {
+            println!("response: {:?}", response);
+            return Ok(());
+        }
+        if bytes_read == 0 {
+            // Connection reset by peer:
+            // No more bytes were read but we still could not parse the response
+            return Err(());
+        }
+        if buffer.len() == buffer.capacity() {
+            buffer.resize(buffer.capacity() * 2, 0);
+        }
+        if buffer.len() >= max_buffer_size {
+            return Err(());
         }
     }
 }
