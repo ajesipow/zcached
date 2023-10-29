@@ -8,6 +8,10 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
 
+use tracing::error;
+
+use crate::error::Result;
+use crate::error::ServerError;
 use crate::parse_request;
 use crate::serialize_response;
 use crate::Request;
@@ -26,15 +30,6 @@ const MAX_BUFFER_SIZE: usize = 1024 * 1024; // 1MB
 const MAX_BUFFER_SIZE: usize = 93;
 
 type DB = HashMap<String, String>;
-
-#[derive(Debug)]
-#[cfg_attr(test, derive(PartialEq))]
-enum ServerError {
-    TooMuchData,
-    ConnectionResetByPeer,
-    DbLock,
-    IO,
-}
 
 /// A basic in-memory database server.
 pub struct Server {
@@ -65,7 +60,7 @@ impl Server {
                     let _ = handle_connection(&mut stream, db_clone);
                 }
                 Err(e) => {
-                    println!("Could not read incoming stream: {:?}", e);
+                    error!("Could not read incoming stream: {:?}", e);
                 }
             });
         }
@@ -75,7 +70,7 @@ impl Server {
 fn handle_connection<RW>(
     stream: &mut RW,
     db: Arc<Mutex<DB>>,
-) -> Result<(), ServerError>
+) -> Result<()>
 where
     RW: Read + Write + ?Sized,
 {
@@ -83,7 +78,7 @@ where
     let mut cursor = 0;
 
     loop {
-        if let Some((request, n_parsed_bytes)) = parse_request(&buffer[0..cursor]) {
+        if let Some((request, n_parsed_bytes)) = parse_request(&buffer[0..cursor]).unwrap() {
             let mut db_lock = db.try_lock().map_err(|_| ServerError::DbLock)?;
             let response = match request {
                 Request::Get(key) => {
@@ -118,7 +113,7 @@ where
         }
 
         if buffer.len() >= MAX_BUFFER_SIZE {
-            return Err(ServerError::TooMuchData);
+            return Err(ServerError::TooMuchData.into());
         }
 
         if buffer.len() == cursor {
@@ -132,7 +127,7 @@ where
             return if cursor == 0 {
                 Ok(())
             } else {
-                Err(ServerError::ConnectionResetByPeer)
+                Err(ServerError::ConnectionResetByPeer.into())
             };
         } else {
             cursor += n_bytes_read;
@@ -163,6 +158,7 @@ mod test {
     use super::ServerError;
     use super::INITIAL_BUFFER_SIZE;
     use super::MAX_BUFFER_SIZE;
+    use crate::error::Error;
 
     #[test]
     fn test_read_request_single_request_in_stream() {
@@ -236,9 +232,9 @@ mod test {
             raw_data.len()
         );
         let mut stream = Cursor::new(raw_data);
-        assert_eq!(
+        assert!(matches!(
             handle_connection(&mut stream, db).err(),
-            Some(ServerError::TooMuchData)
-        );
+            Some(Error::Server(ServerError::TooMuchData))
+        ));
     }
 }

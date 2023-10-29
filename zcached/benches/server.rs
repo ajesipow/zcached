@@ -43,7 +43,7 @@ fn random_client_action<'a>(
             client.set(key, value);
         }
         RandomAccessClientSetup::Get(key) => {
-            client.get(key);
+            client.get(key).unwrap();
         }
         RandomAccessClientSetup::Delete(key) => {
             client.delete(key);

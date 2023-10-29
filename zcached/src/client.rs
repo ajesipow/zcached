@@ -3,6 +3,8 @@ use std::io::Write;
 use std::net::TcpStream;
 use std::net::ToSocketAddrs;
 
+use crate::error::ClientError;
+use crate::error::Result;
 use crate::parse_response;
 use crate::serialize_request;
 use crate::Request;
@@ -44,7 +46,8 @@ impl Client {
     pub fn get(
         &mut self,
         key: &str,
-    ) {
+        // TODO return proper response
+    ) -> Result<()> {
         let request = Request::Get(key);
         self.send_request(request);
         receive_response(
@@ -52,7 +55,6 @@ impl Client {
             self.init_buffer_size,
             self.max_buffer_size,
         )
-        .unwrap();
     }
 
     pub fn set(
@@ -91,24 +93,24 @@ fn receive_response<R: Read>(
     stream: &mut R,
     init_buffer_size: usize,
     max_buffer_size: usize,
-) -> Result<(), ()> {
+) -> Result<()> {
     let mut buffer = vec![0; init_buffer_size];
     loop {
-        let bytes_read = stream.read(&mut buffer).map_err(|_| ())?;
-        if let Some(response) = parse_response(&buffer) {
+        let bytes_read = stream.read(&mut buffer)?;
+        if let Some(response) = parse_response(&buffer)? {
             println!("response: {:?}", response);
             return Ok(());
         }
         if bytes_read == 0 {
             // Connection reset by peer:
             // No more bytes were read but we still could not parse the response
-            return Err(());
+            return Err(ClientError::ConnectionResetByPeer.into());
         }
         if buffer.len() == buffer.capacity() {
             buffer.resize(buffer.capacity() * 2, 0);
         }
         if buffer.len() >= max_buffer_size {
-            return Err(());
+            return Err(ClientError::TooMuchData.into());
         }
     }
 }
