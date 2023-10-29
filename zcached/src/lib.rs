@@ -12,7 +12,15 @@ use tracing::debug;
 use crate::error::ParsingError;
 
 #[derive(Debug)]
-enum Response<'a> {
+pub enum Response {
+    Get(Option<String>),
+    Set,
+    Delete,
+    Flush,
+}
+
+#[derive(Debug)]
+enum RawResponse<'a> {
     Get(Option<&'a str>),
     Set,
     Delete,
@@ -54,7 +62,7 @@ pub(crate) fn parse_request(input: &[u8]) -> Result<Option<(Request<'_>, usize)>
     Ok(request.map(|req| (req, cursor)))
 }
 
-pub(crate) fn parse_response(input: &[u8]) -> Result<Option<Response<'_>>> {
+pub(crate) fn parse_response(input: &[u8]) -> Result<Option<Response>> {
     let mut cursor = 0;
     let Some(op_code) = input.get(cursor) else {
         return Ok(None);
@@ -66,7 +74,7 @@ pub(crate) fn parse_response(input: &[u8]) -> Result<Option<Response<'_>>> {
     let response = match &op_code {
         1 => {
             let key = read_element(input, &mut cursor)?;
-            Response::Get(key)
+            Response::Get(key.map(ToString::to_string))
         }
         2 => Response::Set,
         3 => Response::Delete,
@@ -107,9 +115,9 @@ pub(crate) fn serialize_request(request: Request) -> Vec<u8> {
     }
 }
 
-pub(crate) fn serialize_response(response: Response) -> Vec<u8> {
+pub(crate) fn serialize_response(response: RawResponse) -> Vec<u8> {
     match response {
-        Response::Get(maybe_key) => {
+        RawResponse::Get(maybe_key) => {
             let key_len = maybe_key.map(|k| k.len()).unwrap_or(0);
             // Reserve enough space so we don't have to reallocate
             let mut data = Vec::with_capacity(key_len + 5);
@@ -120,13 +128,13 @@ pub(crate) fn serialize_response(response: Response) -> Vec<u8> {
             }
             data
         }
-        Response::Set => {
+        RawResponse::Set => {
             vec![2]
         }
-        Response::Delete => {
+        RawResponse::Delete => {
             vec![3]
         }
-        Response::Flush => {
+        RawResponse::Flush => {
             vec![4]
         }
     }

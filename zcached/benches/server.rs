@@ -19,7 +19,7 @@ fn get_key(c: &mut Criterion) {
         server.run();
     });
     let mut client = Client::connect("127.0.0.1:6599");
-    client.set("hello", "world");
+    client.set("hello", "world").unwrap();
 
     c.bench_function("get key", |b| b.iter(|| client.get("hello")));
 }
@@ -40,16 +40,16 @@ fn random_client_action<'a>(
     let mut rng = StdRng::seed_from_u64(42);
     match data[data_distribution.sample(&mut rng)] {
         RandomAccessClientSetup::Set { key, value } => {
-            client.set(key, value);
+            client.set(key, value).unwrap();
         }
         RandomAccessClientSetup::Get(key) => {
             client.get(key).unwrap();
         }
         RandomAccessClientSetup::Delete(key) => {
-            client.delete(key);
+            client.delete(key).unwrap();
         }
         RandomAccessClientSetup::Flush => {
-            client.flush();
+            client.flush().unwrap();
         }
     };
 }

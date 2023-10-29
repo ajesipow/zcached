@@ -14,8 +14,8 @@ use crate::error::Result;
 use crate::error::ServerError;
 use crate::parse_request;
 use crate::serialize_response;
+use crate::RawResponse;
 use crate::Request;
-use crate::Response;
 
 #[cfg(not(test))]
 const INITIAL_BUFFER_SIZE: usize = 4096;
@@ -83,19 +83,19 @@ where
             let response = match request {
                 Request::Get(key) => {
                     let v = db_lock.get(key);
-                    Response::Get(v.map(|s| s.as_str()))
+                    RawResponse::Get(v.map(|s| s.as_str()))
                 }
                 Request::Set { key, value } => {
                     db_lock.insert(key.to_string(), value.to_string());
-                    Response::Set
+                    RawResponse::Set
                 }
                 Request::Delete(key) => {
                     db_lock.remove(key);
-                    Response::Delete
+                    RawResponse::Delete
                 }
                 Request::Flush => {
                     db_lock.clear();
-                    Response::Flush
+                    RawResponse::Flush
                 }
             };
             send_response(stream, response).map_err(|_| ServerError::IO)?;
@@ -137,7 +137,7 @@ where
 
 fn send_response<W>(
     stream: &mut W,
-    response: Response,
+    response: RawResponse,
 ) -> io::Result<()>
 where
     W: Write + ?Sized,

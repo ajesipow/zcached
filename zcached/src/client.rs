@@ -8,6 +8,7 @@ use crate::error::Result;
 use crate::parse_response;
 use crate::serialize_request;
 use crate::Request;
+use crate::Response;
 
 pub struct Client {
     stream: TcpStream,
@@ -46,8 +47,7 @@ impl Client {
     pub fn get(
         &mut self,
         key: &str,
-        // TODO return proper response
-    ) -> Result<()> {
+    ) -> Result<Response> {
         let request = Request::Get(key);
         self.send_request(request);
         receive_response(
@@ -61,22 +61,37 @@ impl Client {
         &mut self,
         key: &str,
         value: &str,
-    ) {
+    ) -> Result<Response> {
         let request = Request::Set { key, value };
         self.send_request(request);
+        receive_response(
+            &mut self.stream,
+            self.init_buffer_size,
+            self.max_buffer_size,
+        )
     }
 
     pub fn delete(
         &mut self,
         key: &str,
-    ) {
+    ) -> Result<Response> {
         let request = Request::Delete(key);
         self.send_request(request);
+        receive_response(
+            &mut self.stream,
+            self.init_buffer_size,
+            self.max_buffer_size,
+        )
     }
 
-    pub fn flush(&mut self) {
+    pub fn flush(&mut self) -> Result<Response> {
         let request = Request::Flush;
         self.send_request(request);
+        receive_response(
+            &mut self.stream,
+            self.init_buffer_size,
+            self.max_buffer_size,
+        )
     }
 
     fn send_request(
@@ -93,13 +108,12 @@ fn receive_response<R: Read>(
     stream: &mut R,
     init_buffer_size: usize,
     max_buffer_size: usize,
-) -> Result<()> {
+) -> Result<Response> {
     let mut buffer = vec![0; init_buffer_size];
     loop {
         let bytes_read = stream.read(&mut buffer)?;
         if let Some(response) = parse_response(&buffer)? {
-            println!("response: {:?}", response);
-            return Ok(());
+            return Ok(response);
         }
         if bytes_read == 0 {
             // Connection reset by peer:

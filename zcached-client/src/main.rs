@@ -9,13 +9,13 @@ fn main() {
     client.get("abc").unwrap();
     println!("GET");
     sleep(Duration::from_secs(1));
-    client.set("abc", "ghi");
+    client.set("abc", "ghi").unwrap();
     println!("SET");
     sleep(Duration::from_secs(1));
     client.get("abc").unwrap();
     println!("GET");
     sleep(Duration::from_secs(1));
-    client.set("123", "This is some longer text that did not fit into a single TCP request. This is an even longer text for testing the resizing of the buffer. There is even more data in here now. Look at that");
+    client.set("123", "This is some longer text that did not fit into a single TCP request. This is an even longer text for testing the resizing of the buffer. There is even more data in here now. Look at that").unwrap();
     println!("SET");
     sleep(Duration::from_secs(1));
     client.get("123").unwrap();
