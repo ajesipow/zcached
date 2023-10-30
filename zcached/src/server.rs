@@ -17,30 +17,21 @@ use crate::serialize_response;
 use crate::RawResponse;
 use crate::Request;
 
-#[cfg(not(test))]
-const INITIAL_BUFFER_SIZE: usize = 4096;
-#[cfg(test)]
-const INITIAL_BUFFER_SIZE: usize = 32;
-
-// The buffer can be resized as long as it is < MAX_BUFFER_SIZE.
-// If the client requests too much data, we reject the request.
-#[cfg(not(test))]
-const MAX_BUFFER_SIZE: usize = 1024 * 1024; // 1MB
-#[cfg(test)]
-const MAX_BUFFER_SIZE: usize = 93;
-
 type DB = HashMap<String, String>;
 
 /// A basic in-memory database server.
 pub struct Server {
     listener: TcpListener,
     db: Arc<Mutex<DB>>,
+    initial_buffer_size: usize,
+    // If the client requests too much data, we reject the request.
+    max_buffer_size: usize,
 }
 
 impl Server {
     /// Creates a new server.
-    /// Panics when it cannot bind to `addr`.
-    pub fn new<A>(addr: A) -> Self
+    /// Panics if it cannot bind to `addr`.
+    pub fn bind<A>(addr: A) -> Self
     where
         A: ToSocketAddrs,
     {
@@ -48,6 +39,8 @@ impl Server {
         Self {
             listener,
             db: Arc::new(Mutex::new(HashMap::with_capacity(1024))),
+            initial_buffer_size: 4096,
+            max_buffer_size: 1024 * 1024,
         }
     }
 
@@ -55,9 +48,12 @@ impl Server {
     pub fn run(&self) {
         for stream in self.listener.incoming() {
             let db_clone = self.db.clone();
+            let init_buffer_size = self.initial_buffer_size;
+            let max_buffer_size = self.max_buffer_size;
             thread::spawn(move || match stream {
                 Ok(mut stream) => {
-                    let _ = handle_connection(&mut stream, db_clone);
+                    let _ =
+                        handle_connection(&mut stream, db_clone, init_buffer_size, max_buffer_size);
                 }
                 Err(e) => {
                     error!("Could not read incoming stream: {:?}", e);
@@ -70,11 +66,13 @@ impl Server {
 fn handle_connection<RW>(
     stream: &mut RW,
     db: Arc<Mutex<DB>>,
+    initial_buffer_size: usize,
+    max_buffer_size: usize,
 ) -> Result<()>
 where
     RW: Read + Write + ?Sized,
 {
-    let mut buffer = vec![0; INITIAL_BUFFER_SIZE];
+    let mut buffer = vec![0; initial_buffer_size];
     let mut cursor = 0;
 
     loop {
@@ -112,7 +110,7 @@ where
             continue;
         }
 
-        if buffer.len() >= MAX_BUFFER_SIZE {
+        if buffer.len() >= max_buffer_size {
             return Err(ServerError::TooMuchData.into());
         }
 
@@ -156,9 +154,10 @@ mod test {
 
     use super::handle_connection;
     use super::ServerError;
-    use super::INITIAL_BUFFER_SIZE;
-    use super::MAX_BUFFER_SIZE;
     use crate::error::Error;
+
+    const INITIAL_BUFFER_SIZE: usize = 32;
+    const MAX_BUFFER_SIZE: usize = 93;
 
     #[test]
     fn test_read_request_single_request_in_stream() {
@@ -167,7 +166,12 @@ mod test {
         assert!(raw_data.len() < INITIAL_BUFFER_SIZE);
         assert!(raw_data.len() < 2 * MAX_BUFFER_SIZE);
         let mut stream = Cursor::new(raw_data);
-        let _ = handle_connection(&mut stream, db.clone());
+        let _ = handle_connection(
+            &mut stream,
+            db.clone(),
+            INITIAL_BUFFER_SIZE,
+            MAX_BUFFER_SIZE,
+        );
         assert_eq!(db.lock().unwrap().get("abc").unwrap(), "ghi");
     }
 
@@ -182,7 +186,12 @@ mod test {
         assert!(raw_data.len() < INITIAL_BUFFER_SIZE);
         assert!(raw_data.len() < 2 * MAX_BUFFER_SIZE);
         let mut stream = Cursor::new(raw_data);
-        let _ = handle_connection(&mut stream, db.clone());
+        let _ = handle_connection(
+            &mut stream,
+            db.clone(),
+            INITIAL_BUFFER_SIZE,
+            MAX_BUFFER_SIZE,
+        );
         assert_eq!(db.lock().unwrap().get("abc").unwrap(), "ghi");
         assert_eq!(db.lock().unwrap().get("123").unwrap(), "456");
     }
@@ -201,7 +210,12 @@ mod test {
         assert!(raw_data.len() > INITIAL_BUFFER_SIZE);
         assert!(raw_data.len() < 2 * MAX_BUFFER_SIZE);
         let mut stream = Cursor::new(raw_data);
-        let _ = handle_connection(&mut stream, db.clone());
+        let _ = handle_connection(
+            &mut stream,
+            db.clone(),
+            INITIAL_BUFFER_SIZE,
+            MAX_BUFFER_SIZE,
+        );
         assert_eq!(
             db.lock().unwrap().get("123").unwrap(),
             "This is some longer text that did not fit into a single TCP request"
@@ -233,7 +247,7 @@ mod test {
         );
         let mut stream = Cursor::new(raw_data);
         assert!(matches!(
-            handle_connection(&mut stream, db).err(),
+            handle_connection(&mut stream, db, INITIAL_BUFFER_SIZE, MAX_BUFFER_SIZE).err(),
             Some(Error::Server(ServerError::TooMuchData))
         ));
     }

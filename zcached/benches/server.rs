@@ -15,7 +15,7 @@ use zcached::Server;
 
 fn get_key(c: &mut Criterion) {
     thread::spawn(move || {
-        let server = Server::new("127.0.0.1:6599");
+        let server = Server::bind("127.0.0.1:6599");
         server.run();
     });
     let mut client = Client::connect("127.0.0.1:6599");
@@ -56,7 +56,7 @@ fn random_client_action<'a>(
 
 fn set_and_get_random_access(c: &mut Criterion) {
     thread::spawn(move || {
-        let server = Server::new("127.0.0.1:6598");
+        let server = Server::bind("127.0.0.1:6598");
         server.run();
     });
 
