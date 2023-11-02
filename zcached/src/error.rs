@@ -31,7 +31,7 @@ pub enum ServerError {
     #[error("database locking issue")]
     DbLock,
     #[error("database IO issue")]
-    IO,
+    IO(#[from] std::io::Error),
 }
 
 #[derive(Debug, Error)]

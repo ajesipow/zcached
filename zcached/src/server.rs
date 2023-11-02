@@ -27,7 +27,6 @@ pub struct Server {
     // If the client requests too much data, we reject the request.
     max_buffer_size: MaxBufferSize,
 }
-
 /// A `ServerBuilder` can be used to create a `Server` with custom configuration.
 #[derive(Debug)]
 pub struct ServerBuilder<A> {
@@ -156,6 +155,12 @@ impl Server {
             });
         }
     }
+
+    /// Returns the port the server is listening on.
+    pub fn port(&self) -> Result<u16> {
+        let addr = self.listener.local_addr().map_err(ServerError::IO)?;
+        Ok(addr.port())
+    }
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -208,7 +213,7 @@ fn handle_connection<RW: Read + Write + ?Sized>(
                     RawResponse::Flush
                 }
             };
-            send_response(stream, response).map_err(|_| ServerError::IO)?;
+            send_response(stream, response).map_err(ServerError::IO)?;
             drop(db_lock);
 
             if n_parsed_bytes <= cursor {

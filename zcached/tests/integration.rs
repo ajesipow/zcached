@@ -6,18 +6,19 @@ use zcached::Server;
 
 #[test]
 fn setting_and_getting_a_key_works() {
-    let addr = "127.0.0.1:9876";
+    let host = "127.0.0.1";
     let server = Server::builder()
-        .address(addr)
+        .address(format!("{host}:0"))
         .initial_buffer_size(256)
         .max_buffer_size(1024)
         .build()
         .unwrap();
+    let port = server.port().unwrap();
     thread::spawn(move || {
         server.run();
     });
 
-    let mut client = Client::connect(addr);
+    let mut client = Client::connect(format!("{host}:{port}"));
     let key = "abc";
     let value = "123".to_string();
     assert_eq!(client.get(key).unwrap(), Response::Get(None));
@@ -27,18 +28,19 @@ fn setting_and_getting_a_key_works() {
 
 #[test]
 fn deleting_a_key_works() {
-    let addr = "127.0.0.1:9876";
+    let host = "127.0.0.1";
     let server = Server::builder()
-        .address(addr)
+        .address(format!("{host}:0"))
         .initial_buffer_size(256)
         .max_buffer_size(1024)
         .build()
         .unwrap();
+    let port = server.port().unwrap();
     thread::spawn(move || {
         server.run();
     });
 
-    let mut client = Client::connect(addr);
+    let mut client = Client::connect(format!("{host}:{port}"));
     let key = "abc";
     let value = "123".to_string();
     assert_eq!(client.set(key, &value).unwrap(), Response::Set);
@@ -49,18 +51,19 @@ fn deleting_a_key_works() {
 
 #[test]
 fn flushing_works() {
-    let addr = "127.0.0.1:9876";
+    let host = "127.0.0.1";
     let server = Server::builder()
-        .address(addr)
+        .address(format!("{host}:0"))
         .initial_buffer_size(256)
         .max_buffer_size(1024)
         .build()
         .unwrap();
+    let port = server.port().unwrap();
     thread::spawn(move || {
         server.run();
     });
 
-    let mut client = Client::connect(addr);
+    let mut client = Client::connect(format!("{host}:{port}"));
     let key_1 = "abc";
     let key_2 = "def";
     let value = "123".to_string();
