@@ -11,8 +11,7 @@ use tracing::debug;
 
 use crate::error::ParsingError;
 
-#[derive(Debug)]
-#[cfg_attr(test, derive(PartialEq))]
+#[derive(Debug, PartialEq)]
 pub enum Response {
     Get(Option<String>),
     Set,
