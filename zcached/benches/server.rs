@@ -14,11 +14,18 @@ use zcached::Client;
 use zcached::Server;
 
 fn get_key(c: &mut Criterion) {
+    let host = "127.0.0.1";
+    let server = Server::builder()
+        .address(format!("{host}:0"))
+        .initial_buffer_size(256)
+        .max_buffer_size(1024)
+        .build()
+        .unwrap();
+    let port = server.port().unwrap();
     thread::spawn(move || {
-        let server = Server::bind("127.0.0.1:6599");
         server.run();
     });
-    let mut client = Client::connect("127.0.0.1:6599");
+    let mut client = Client::connect(format!("{host}:{port}"));
     client.set("hello", "world").unwrap();
 
     c.bench_function("get key", |b| b.iter(|| client.get("hello")));
@@ -55,13 +62,19 @@ fn random_client_action<'a>(
 }
 
 fn set_and_get_random_access(c: &mut Criterion) {
+    let host = "127.0.0.1";
+    let server = Server::builder()
+        .address(format!("{host}:0"))
+        .initial_buffer_size(256)
+        .max_buffer_size(1024)
+        .build()
+        .unwrap();
+    let port = server.port().unwrap();
     thread::spawn(move || {
-        let server = Server::bind("127.0.0.1:6598");
         server.run();
     });
 
-    // Seed the server with some data
-    let mut client = Client::connect("127.0.0.1:6598");
+    let mut client = Client::connect(format!("{host}:{port}"));
 
     let mut rng = StdRng::seed_from_u64(42);
     let keys: Vec<String> = (0..10_000)
