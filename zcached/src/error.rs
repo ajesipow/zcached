@@ -22,6 +22,8 @@ pub enum ParsingError {
 
 #[derive(Debug, Error)]
 pub enum ServerError {
+    #[error("no address provided for starting server")]
+    NoAddress,
     #[error("received too much data")]
     TooMuchData,
     #[error("connection reset by peer")]

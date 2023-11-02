@@ -23,25 +23,120 @@ type DB = HashMap<String, String>;
 pub struct Server {
     listener: TcpListener,
     db: Arc<Mutex<DB>>,
-    initial_buffer_size: usize,
+    initial_buffer_size: InitialBufferSize,
     // If the client requests too much data, we reject the request.
-    max_buffer_size: usize,
+    max_buffer_size: MaxBufferSize,
+}
+
+/// A `ServerBuilder` can be used to create a `Server` with custom configuration.
+#[derive(Debug)]
+pub struct ServerBuilder<A> {
+    addr: Option<A>,
+    initial_db_size: Option<usize>,
+    initial_buffer_size: Option<InitialBufferSize>,
+    max_buffer_size: Option<MaxBufferSize>,
+}
+
+impl<A> Default for ServerBuilder<A> {
+    fn default() -> Self {
+        Self {
+            addr: None,
+            initial_db_size: None,
+            initial_buffer_size: None,
+            max_buffer_size: None,
+        }
+    }
+}
+
+impl<A: ToSocketAddrs> ServerBuilder<A> {
+    /// Creates a new `ServerBuilder`
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the address the `Server` listens at.
+    /// The validity of `addr` is not verified here, but only when [`build`]ing the server.
+    ///
+    /// [`build`]: ServerBuilder::build
+    pub fn address(
+        mut self,
+        addr: A,
+    ) -> Self {
+        self.addr = Some(addr);
+        self
+    }
+
+    /// Sets the initial memory allocation of the database in bytes.
+    pub fn initial_db_size(
+        mut self,
+        initial_db_size: usize,
+    ) -> Self {
+        self.initial_db_size = Some(initial_db_size);
+        self
+    }
+
+    /// Sets the initial buffer size in bytes for every new incoming connection to the server.
+    pub fn initial_buffer_size(
+        mut self,
+        initial_buffer_size: usize,
+    ) -> Self {
+        self.initial_buffer_size = Some(InitialBufferSize(initial_buffer_size));
+        self
+    }
+
+    /// Sets the maximum buffer size in bytes for every new incoming connection to the server.
+    /// If the client sends more than this number of byes, the request will be rejected.
+    pub fn max_buffer_size(
+        mut self,
+        max_buffer_size: usize,
+    ) -> Self {
+        self.max_buffer_size = Some(MaxBufferSize(max_buffer_size));
+        self
+    }
+
+    /// Starts a server from this `ServerBuilder`.
+    ///
+    /// # Errors
+    /// If no [`address`] was set then an error is returned.
+    ///
+    /// [`address`]: ServerBuilder::address
+    ///
+    /// # Panics
+    /// Panics if the server cannot bind to the specified `address`.
+    pub fn build(self) -> Result<Server> {
+        let Some(addr) = self.addr else {
+            return Err(ServerError::NoAddress.into());
+        };
+        let listener = TcpListener::bind(addr).expect("to be able to bind to address");
+        Ok(Server {
+            listener,
+            initial_buffer_size: self.initial_buffer_size.unwrap_or_default(),
+            max_buffer_size: self.max_buffer_size.unwrap_or_default(),
+            db: Arc::new(Mutex::new(DB::with_capacity(
+                self.initial_db_size.unwrap_or(1024 * 1024),
+            ))),
+        })
+    }
 }
 
 impl Server {
-    /// Creates a new server.
+    /// Creates a new `Server` listening on `addr`.
+    ///
+    /// # Panics
     /// Panics if it cannot bind to `addr`.
-    pub fn bind<A>(addr: A) -> Self
-    where
-        A: ToSocketAddrs,
-    {
+    pub fn bind<A: ToSocketAddrs>(addr: A) -> Self {
         let listener = TcpListener::bind(addr).expect("to be able to bind to address");
         Self {
             listener,
             db: Arc::new(Mutex::new(HashMap::with_capacity(1024))),
-            initial_buffer_size: 4096,
-            max_buffer_size: 1024 * 1024,
+            initial_buffer_size: InitialBufferSize::default(),
+            max_buffer_size: MaxBufferSize::default(),
         }
+    }
+
+    /// Returns a `ServerBuilder` that can be used to build a `Server`.
+    pub fn builder<A: ToSocketAddrs>() -> ServerBuilder<A> {
+        ServerBuilder::new()
     }
 
     /// Runs the server.
@@ -63,16 +158,33 @@ impl Server {
     }
 }
 
-fn handle_connection<RW>(
+#[derive(Debug, Copy, Clone)]
+struct InitialBufferSize(usize);
+
+impl Default for InitialBufferSize {
+    fn default() -> Self {
+        // 4kB
+        Self(4096)
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+struct MaxBufferSize(usize);
+
+impl Default for MaxBufferSize {
+    fn default() -> Self {
+        // 1MB
+        Self(1024 * 1024)
+    }
+}
+
+fn handle_connection<RW: Read + Write + ?Sized>(
     stream: &mut RW,
     db: Arc<Mutex<DB>>,
-    initial_buffer_size: usize,
-    max_buffer_size: usize,
-) -> Result<()>
-where
-    RW: Read + Write + ?Sized,
-{
-    let mut buffer = vec![0; initial_buffer_size];
+    initial_buffer_size: InitialBufferSize,
+    max_buffer_size: MaxBufferSize,
+) -> Result<()> {
+    let mut buffer = vec![0; initial_buffer_size.0];
     let mut cursor = 0;
 
     loop {
@@ -110,7 +222,7 @@ where
             continue;
         }
 
-        if buffer.len() >= max_buffer_size {
+        if buffer.len() >= max_buffer_size.0 {
             return Err(ServerError::TooMuchData.into());
         }
 
@@ -133,13 +245,10 @@ where
     }
 }
 
-fn send_response<W>(
+fn send_response<W: Write + ?Sized>(
     stream: &mut W,
     response: RawResponse,
-) -> io::Result<()>
-where
-    W: Write + ?Sized,
-{
+) -> io::Result<()> {
     let bytes = serialize_response(response);
     stream.write_all(&bytes)?;
     stream.flush()
@@ -155,6 +264,8 @@ mod test {
     use super::handle_connection;
     use super::ServerError;
     use crate::error::Error;
+    use crate::server::InitialBufferSize;
+    use crate::server::MaxBufferSize;
 
     const INITIAL_BUFFER_SIZE: usize = 32;
     const MAX_BUFFER_SIZE: usize = 93;
@@ -169,8 +280,8 @@ mod test {
         let _ = handle_connection(
             &mut stream,
             db.clone(),
-            INITIAL_BUFFER_SIZE,
-            MAX_BUFFER_SIZE,
+            InitialBufferSize(INITIAL_BUFFER_SIZE),
+            MaxBufferSize(MAX_BUFFER_SIZE),
         );
         assert_eq!(db.lock().unwrap().get("abc").unwrap(), "ghi");
     }
@@ -189,8 +300,8 @@ mod test {
         let _ = handle_connection(
             &mut stream,
             db.clone(),
-            INITIAL_BUFFER_SIZE,
-            MAX_BUFFER_SIZE,
+            InitialBufferSize(INITIAL_BUFFER_SIZE),
+            MaxBufferSize(MAX_BUFFER_SIZE),
         );
         assert_eq!(db.lock().unwrap().get("abc").unwrap(), "ghi");
         assert_eq!(db.lock().unwrap().get("123").unwrap(), "456");
@@ -213,8 +324,8 @@ mod test {
         let _ = handle_connection(
             &mut stream,
             db.clone(),
-            INITIAL_BUFFER_SIZE,
-            MAX_BUFFER_SIZE,
+            InitialBufferSize(INITIAL_BUFFER_SIZE),
+            MaxBufferSize(MAX_BUFFER_SIZE),
         );
         assert_eq!(
             db.lock().unwrap().get("123").unwrap(),
@@ -247,7 +358,13 @@ mod test {
         );
         let mut stream = Cursor::new(raw_data);
         assert!(matches!(
-            handle_connection(&mut stream, db, INITIAL_BUFFER_SIZE, MAX_BUFFER_SIZE).err(),
+            handle_connection(
+                &mut stream,
+                db,
+                InitialBufferSize(INITIAL_BUFFER_SIZE),
+                MaxBufferSize(MAX_BUFFER_SIZE),
+            )
+            .err(),
             Some(Error::Server(ServerError::TooMuchData))
         ));
     }

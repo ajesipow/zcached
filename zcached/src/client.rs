@@ -19,10 +19,7 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn connect<A>(addr: A) -> Self
-    where
-        A: ToSocketAddrs,
-    {
+    pub fn connect<A: ToSocketAddrs>(addr: A) -> Self {
         Self {
             stream: TcpStream::connect(addr).unwrap(),
             init_buffer_size: 4096,
@@ -30,13 +27,10 @@ impl Client {
         }
     }
 
-    pub fn connect_with_max_buffer_size<A>(
+    pub fn connect_with_max_buffer_size<A: ToSocketAddrs>(
         addr: A,
         max_buffer_size: usize,
-    ) -> Self
-    where
-        A: ToSocketAddrs,
-    {
+    ) -> Self {
         Self {
             stream: TcpStream::connect(addr).unwrap(),
             init_buffer_size: 4096,
