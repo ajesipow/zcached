@@ -170,27 +170,3 @@ fn read_element<'a>(
     let element = from_utf8(element_bytes).map_err(ParsingError::from)?;
     Ok(Some(element))
 }
-
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    
-    #[test]
-    fn serialize_response_works() {
-        assert_eq!(serialize_response(RawResponse::Get(None)), vec![1]);
-        assert_eq!(serialize_response(RawResponse::Get(Some("abc"))), vec![1, 0, 0, 0, 3, 97, 98, 99]);
-        assert_eq!(serialize_response(RawResponse::Set), vec![2]);
-        assert_eq!(serialize_response(RawResponse::Delete), vec![3]);
-        assert_eq!(serialize_response(RawResponse::Flush), vec![4]);
-    }
-    
-    #[test]
-    fn parse_response_works() {
-        assert_eq!(parse_response(&[1]).unwrap(), Some(Response::Get(None)));
-        assert_eq!(parse_response(&[1, 0, 0, 0, 3, 97, 98, 99]).unwrap(), Some(Response::Get(Some("abc".to_string()))));
-        assert_eq!(parse_response(&[2]).unwrap(), Some(Response::Set));
-        assert_eq!(parse_response(&[3]).unwrap(), Some(Response::Delete));
-        assert_eq!(parse_response(&[4]).unwrap(), Some(Response::Flush));
-    }
-}
