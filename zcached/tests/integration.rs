@@ -71,7 +71,7 @@ fn flushing_works() {
         Response::Get(Some(value.clone()))
     );
     assert_eq!(client.get(key_2).unwrap(), Response::Get(Some(value)));
-    assert_eq!(client.flush().unwrap(), Response::Delete);
+    assert_eq!(client.flush().unwrap(), Response::Flush);
     assert_eq!(client.get(key_1).unwrap(), Response::Get(None));
     assert_eq!(client.get(key_2).unwrap(), Response::Get(None));
 }

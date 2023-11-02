@@ -157,6 +157,9 @@ fn read_element<'a>(
         .try_into()
         .map_err(|_| ParsingError::Other)?;
     let element_size = u32::from_be_bytes(bytes) as usize;
+    if element_size == 0 {
+        return Ok(None);
+    }
     *cursor = element_size_end;
     // Check that enough bytes are in input
     let element_end = *cursor + element_size;
