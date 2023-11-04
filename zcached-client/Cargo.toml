@@ -7,3 +7,4 @@ edition = "2021"
 
 [dependencies]
 zcached = {path = "../zcached"}
+rand = "0.8"

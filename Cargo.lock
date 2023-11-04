@@ -1063,6 +1063,7 @@ dependencies = [
 name = "zcached-client"
 version = "0.1.0"
 dependencies = [
+ "rand",
  "zcached",
 ]
 
