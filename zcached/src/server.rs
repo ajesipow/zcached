@@ -146,6 +146,7 @@ impl Server {
             let max_buffer_size = self.max_buffer_size;
             thread::spawn(move || match stream {
                 Ok(mut stream) => {
+                    // TODO handle err
                     let _ =
                         handle_connection(&mut stream, db_clone, init_buffer_size, max_buffer_size);
                 }
@@ -194,7 +195,7 @@ fn handle_connection<RW: Read + Write + ?Sized>(
 
     loop {
         if let Some((request, n_parsed_bytes)) = parse_request(&buffer[0..cursor]).unwrap() {
-            let mut db_lock = db.try_lock().map_err(|_| ServerError::DbLock)?;
+            let mut db_lock = db.lock().map_err(|_| ServerError::DbLock)?;
             let response = match request {
                 Request::Get(key) => {
                     let v = db_lock.get(key);
