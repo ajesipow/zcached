@@ -43,9 +43,9 @@ fn random_client_action<'a>(
     client: &mut Client,
     data: &'a [RandomAccessClientSetup<'a>],
     data_distribution: &Uniform<usize>,
+    rng: &mut StdRng,
 ) {
-    let mut rng = StdRng::seed_from_u64(42);
-    match data[data_distribution.sample(&mut rng)] {
+    match data[data_distribution.sample(rng)] {
         RandomAccessClientSetup::Set { key, value } => {
             client.set(key, value).unwrap();
         }
@@ -113,7 +113,7 @@ fn set_and_get_random_access(c: &mut Criterion) {
     let data_distribution = Uniform::from(0..data.len());
 
     c.bench_function("set_and_get_random_access", |b| {
-        b.iter(|| random_client_action(&mut client, &data, &data_distribution))
+        b.iter(|| random_client_action(&mut client, &data, &data_distribution, &mut rng))
     });
 }
 
