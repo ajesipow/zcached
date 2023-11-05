@@ -1,4 +1,5 @@
 mod client;
+mod db;
 mod error;
 mod server;
 
@@ -14,14 +15,6 @@ use crate::error::ParsingError;
 #[derive(Debug, PartialEq)]
 pub enum Response {
     Get(Option<String>),
-    Set,
-    Delete,
-    Flush,
-}
-
-#[derive(Debug)]
-enum RawResponse<'a> {
-    Get(Option<&'a str>),
     Set,
     Delete,
     Flush,
@@ -115,10 +108,10 @@ pub(crate) fn serialize_request(request: Request) -> Vec<u8> {
     }
 }
 
-pub(crate) fn serialize_response(response: RawResponse) -> Vec<u8> {
+pub(crate) fn serialize_response(response: Response) -> Vec<u8> {
     match response {
-        RawResponse::Get(maybe_key) => {
-            let key_len = maybe_key.map(|k| k.len()).unwrap_or(0);
+        Response::Get(maybe_key) => {
+            let key_len = maybe_key.as_ref().map(|k| k.len()).unwrap_or(0);
             // Reserve enough space so we don't have to reallocate
             let mut data = Vec::with_capacity(key_len + 5);
             data.push(1);
@@ -128,13 +121,13 @@ pub(crate) fn serialize_response(response: RawResponse) -> Vec<u8> {
             }
             data
         }
-        RawResponse::Set => {
+        Response::Set => {
             vec![2]
         }
-        RawResponse::Delete => {
+        Response::Delete => {
             vec![3]
         }
-        RawResponse::Flush => {
+        Response::Flush => {
             vec![4]
         }
     }

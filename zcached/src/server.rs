@@ -1,28 +1,25 @@
-use std::collections::HashMap;
 use std::io;
 use std::io::Read;
 use std::io::Write;
 use std::net::TcpListener;
 use std::net::ToSocketAddrs;
-use std::sync::Arc;
-use std::sync::Mutex;
 use std::thread;
 
 use tracing::error;
 
+use crate::db::Database;
+use crate::db::DB;
 use crate::error::Result;
 use crate::error::ServerError;
 use crate::parse_request;
 use crate::serialize_response;
-use crate::RawResponse;
 use crate::Request;
-
-type DB = HashMap<String, String>;
+use crate::Response;
 
 /// A basic in-memory database server.
 pub struct Server {
     listener: TcpListener,
-    db: Arc<Mutex<DB>>,
+    db: DB,
     initial_buffer_size: InitialBufferSize,
     // If the client requests too much data, we reject the request.
     max_buffer_size: MaxBufferSize,
@@ -111,9 +108,7 @@ impl<A: ToSocketAddrs> ServerBuilder<A> {
             listener,
             initial_buffer_size: self.initial_buffer_size.unwrap_or_default(),
             max_buffer_size: self.max_buffer_size.unwrap_or_default(),
-            db: Arc::new(Mutex::new(DB::with_capacity(
-                self.initial_db_size.unwrap_or(1024 * 1024),
-            ))),
+            db: DB::with_capacity(self.initial_db_size.unwrap_or(1024 * 1024)),
         })
     }
 }
@@ -127,7 +122,7 @@ impl Server {
         let listener = TcpListener::bind(addr).expect("to be able to bind to address");
         Self {
             listener,
-            db: Arc::new(Mutex::new(HashMap::with_capacity(1024))),
+            db: DB::with_capacity(1024),
             initial_buffer_size: InitialBufferSize::default(),
             max_buffer_size: MaxBufferSize::default(),
         }
@@ -184,38 +179,42 @@ impl Default for MaxBufferSize {
     }
 }
 
-fn handle_connection<RW: Read + Write + ?Sized>(
+fn handle_connection<RW, DB>(
     stream: &mut RW,
-    db: Arc<Mutex<DB>>,
+    db: DB,
     initial_buffer_size: InitialBufferSize,
     max_buffer_size: MaxBufferSize,
-) -> Result<()> {
+) -> Result<()>
+where
+    RW: Read,
+    RW: Write,
+    RW: ?Sized,
+    DB: Database,
+{
     let mut buffer = vec![0; initial_buffer_size.0];
     let mut cursor = 0;
 
     loop {
         if let Some((request, n_parsed_bytes)) = parse_request(&buffer[0..cursor]).unwrap() {
-            let mut db_lock = db.lock().map_err(|_| ServerError::DbLock)?;
             let response = match request {
                 Request::Get(key) => {
-                    let v = db_lock.get(key);
-                    RawResponse::Get(v.map(|s| s.as_str()))
+                    let v = db.get(key)?;
+                    Response::Get(v)
                 }
                 Request::Set { key, value } => {
-                    db_lock.insert(key.to_string(), value.to_string());
-                    RawResponse::Set
+                    db.insert(key.to_string(), value.to_string())?;
+                    Response::Set
                 }
                 Request::Delete(key) => {
-                    db_lock.remove(key);
-                    RawResponse::Delete
+                    db.remove(key)?;
+                    Response::Delete
                 }
                 Request::Flush => {
-                    db_lock.clear();
-                    RawResponse::Flush
+                    db.clear()?;
+                    Response::Flush
                 }
             };
             send_response(stream, response).map_err(ServerError::IO)?;
-            drop(db_lock);
 
             if n_parsed_bytes <= cursor {
                 // We parsed less data than there is in the buffer.
@@ -253,7 +252,7 @@ fn handle_connection<RW: Read + Write + ?Sized>(
 
 fn send_response<W: Write + ?Sized>(
     stream: &mut W,
-    response: RawResponse,
+    response: Response,
 ) -> io::Result<()> {
     let bytes = serialize_response(response);
     stream.write_all(&bytes)?;
@@ -262,13 +261,9 @@ fn send_response<W: Write + ?Sized>(
 
 #[cfg(test)]
 mod test {
-    use std::collections::HashMap;
     use std::io::Cursor;
-    use std::sync::Arc;
-    use std::sync::Mutex;
 
-    use super::handle_connection;
-    use super::ServerError;
+    use super::*;
     use crate::error::Error;
     use crate::server::InitialBufferSize;
     use crate::server::MaxBufferSize;
@@ -278,7 +273,7 @@ mod test {
 
     #[test]
     fn test_read_request_single_request_in_stream() {
-        let db: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(HashMap::new()));
+        let db = DB::new();
         let raw_data = vec![2, 0, 0, 0, 3, 97, 98, 99, 0, 0, 0, 3, 103, 104, 105];
         assert!(raw_data.len() < INITIAL_BUFFER_SIZE);
         assert!(raw_data.len() < 2 * MAX_BUFFER_SIZE);
@@ -294,7 +289,7 @@ mod test {
 
     #[test]
     fn test_read_request_multiple_requests_in_stream() {
-        let db: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(HashMap::new()));
+        let db = DB::new();
         // Two concatenated requests
         let raw_data = vec![
             2, 0, 0, 0, 3, 97, 98, 99, 0, 0, 0, 3, 103, 104, 105, 2, 0, 0, 0, 3, 49, 50, 51, 0, 0,
@@ -315,7 +310,7 @@ mod test {
 
     #[test]
     fn test_read_single_request_larger_than_initial_buffer() {
-        let db: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(HashMap::new()));
+        let db = DB::new();
         // Two concatenated requests
         let raw_data = vec![
             2, 0, 0, 0, 3, 49, 50, 51, 0, 0, 0, 67, 84, 104, 105, 115, 32, 105, 115, 32, 115, 111,
@@ -341,7 +336,7 @@ mod test {
 
     #[test]
     fn test_max_buffer_resize_is_respected() {
-        let db: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(HashMap::new()));
+        let db = DB::new();
         // Two concatenated requests
         let raw_data = vec![
             2, 0, 0, 0, 3, 49, 50, 51, 0, 0, 0, 186, 84, 104, 105, 115, 32, 105, 115, 32, 115, 111,

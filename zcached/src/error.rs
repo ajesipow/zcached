@@ -28,10 +28,16 @@ pub enum ServerError {
     TooMuchData,
     #[error("connection reset by peer")]
     ConnectionResetByPeer,
-    #[error("database locking issue")]
-    DbLock,
+    #[error("database error")]
+    Database(#[from] DatabaseError),
     #[error("database IO issue")]
     IO(#[from] std::io::Error),
+}
+
+#[derive(Debug, Error)]
+pub enum DatabaseError {
+    #[error("database locking issue")]
+    DbLock,
 }
 
 #[derive(Debug, Error)]
