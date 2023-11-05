@@ -284,7 +284,7 @@ mod test {
             InitialBufferSize(INITIAL_BUFFER_SIZE),
             MaxBufferSize(MAX_BUFFER_SIZE),
         );
-        assert_eq!(db.lock().unwrap().get("abc").unwrap(), "ghi");
+        assert_eq!(db.read().unwrap().get("abc").unwrap(), "ghi");
     }
 
     #[test]
@@ -304,8 +304,8 @@ mod test {
             InitialBufferSize(INITIAL_BUFFER_SIZE),
             MaxBufferSize(MAX_BUFFER_SIZE),
         );
-        assert_eq!(db.lock().unwrap().get("abc").unwrap(), "ghi");
-        assert_eq!(db.lock().unwrap().get("123").unwrap(), "456");
+        assert_eq!(db.read().unwrap().get("abc").unwrap(), "ghi");
+        assert_eq!(db.read().unwrap().get("123").unwrap(), "456");
     }
 
     #[test]
@@ -329,7 +329,7 @@ mod test {
             MaxBufferSize(MAX_BUFFER_SIZE),
         );
         assert_eq!(
-            db.lock().unwrap().get("123").unwrap(),
+            db.read().unwrap().get("123").unwrap(),
             "This is some longer text that did not fit into a single TCP request"
         );
     }

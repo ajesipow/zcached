@@ -23,10 +23,16 @@ fn get_db_key(c: &mut Criterion) {
     let (senders, receivers): (Vec<Sender<()>>, Vec<Receiver<()>>) =
         (0..10).map(|_| channel()).unzip();
 
+    // We spawn some threads that can receive work in the actual benchmark.
+    // This saves us the overhead of creating new threads for each iteration of the benchmark,
+    // which would dominate the measurement.
     for rx in receivers {
         let db_clone = db.clone();
         thread::spawn(move || loop {
             if rx.recv().is_ok() {
+                db_clone
+                    .insert("hello".to_string(), "world".to_string())
+                    .unwrap();
                 db_clone.get("hello").unwrap();
             }
         });
