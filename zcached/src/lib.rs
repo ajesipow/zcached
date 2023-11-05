@@ -6,6 +6,8 @@ mod server;
 use std::str::from_utf8;
 
 pub use client::Client;
+pub use db::Database;
+pub use db::DB;
 use error::Result;
 pub use server::Server;
 use tracing::debug;

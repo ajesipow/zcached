@@ -8,7 +8,7 @@ use crate::error::Result;
 use crate::error::ServerError;
 
 /// The main trait to interact with the in-memory database.
-pub(crate) trait Database {
+pub trait Database {
     /// Gets the `key`'s value from the database.
     /// Returns `None` if the ket does not exist.
     fn get(
@@ -36,18 +36,23 @@ pub(crate) trait Database {
 
 /// An w
 #[derive(Debug, Clone)]
-pub(crate) struct DB(Arc<Mutex<HashMap<String, String>>>);
+pub struct DB(Arc<Mutex<HashMap<String, String>>>);
 
 impl DB {
     /// Creates a new instance of `DB`.
-    #[cfg(test)]
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self(Arc::new(Mutex::new(HashMap::new())))
     }
 
     /// Creates a new instance of `DB` with the specified capacity.
-    pub(crate) fn with_capacity(capacity: usize) -> Self {
+    pub fn with_capacity(capacity: usize) -> Self {
         Self(Arc::new(Mutex::new(HashMap::with_capacity(capacity))))
+    }
+}
+
+impl Default for DB {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
