@@ -8,7 +8,7 @@ use crate::error::Result;
 use crate::error::ServerError;
 
 /// The main trait to interact with the in-memory database.
-pub trait Database {
+pub trait Database: Send + Sync {
     /// Gets the `key`'s value from the database.
     /// Returns `None` if the ket does not exist.
     fn get(
