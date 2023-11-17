@@ -1,8 +1,13 @@
 use std::thread;
+use std::thread::JoinHandle;
+use std::time::Duration;
+use std::time::Instant;
 
 use zcached::Client;
+use zcached::Database;
 use zcached::Response;
 use zcached::Server;
+use zcached::DB;
 
 #[test]
 fn setting_and_getting_a_key_works() {
@@ -77,4 +82,32 @@ fn flushing_works() {
     assert_eq!(client.flush().unwrap(), Response::Flush);
     assert_eq!(client.get(key_1).unwrap(), Response::Get(None));
     assert_eq!(client.get(key_2).unwrap(), Response::Get(None));
+}
+
+#[test]
+fn test_basic_contention() {
+    let db = DB::new();
+    let key = "abc".to_string();
+    let mut lock = db.write().unwrap();
+    lock.insert(key.clone(), "value".to_string());
+    drop(lock);
+    let iterations = 100_000;
+    let n_threads = 4;
+    let join_handles: Vec<JoinHandle<_>> = (0..n_threads)
+        .map(|_| {
+            let db_clone = db.clone();
+            let key_clone = key.clone();
+            thread::spawn(move || {
+                let now = Instant::now();
+                for _ in 0..iterations {
+                    db_clone.get(&key_clone).unwrap();
+                }
+                now.elapsed() / iterations
+            })
+        })
+        .collect();
+    let result: Result<Vec<Duration>, _> = join_handles.into_iter().map(|jh| jh.join()).collect();
+    let durations = result.unwrap();
+    println!("durations: {durations:?}");
+    assert!(durations.into_iter().all(|d| d < Duration::from_micros(1)));
 }

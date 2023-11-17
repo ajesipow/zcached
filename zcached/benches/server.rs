@@ -32,8 +32,6 @@ fn get_db_key(c: &mut Criterion) {
     for rx in receivers {
         let db_clone = db.clone();
         thread::spawn(move || loop {
-            // We create these strings ahead of time so that the allocation does not contribute to
-            // the benchmark.
             let key = "hello".to_string();
             let value = "world".to_string();
             if rx.recv().is_ok() {
