@@ -1,6 +1,3 @@
-use std::sync::mpsc::channel;
-use std::sync::mpsc::Receiver;
-use std::sync::mpsc::Sender;
 use std::thread;
 
 use criterion::criterion_group;
@@ -14,42 +11,7 @@ use rand::rngs::StdRng;
 use rand::Rng;
 use rand::SeedableRng;
 use zcached::Client;
-use zcached::Database;
 use zcached::Server;
-use zcached::DB;
-
-fn get_db_key(c: &mut Criterion) {
-    let db = DB::new();
-    let (senders, receivers): (Vec<Sender<()>>, Vec<Receiver<()>>) =
-        (0..10).map(|_| channel()).unzip();
-
-    // let (mut rng, keys, values) = get_random_data();
-    // let (data, data_distribution) = get_data_actions_and_distributions(&mut rng, &keys, &values);
-
-    // We spawn some threads that can receive work in the actual benchmark.
-    // This saves us the overhead of creating new threads for each iteration of the benchmark,
-    // which would dominate the measurement.
-    for rx in receivers {
-        let db_clone = db.clone();
-        thread::spawn(move || loop {
-            let key = "hello".to_string();
-            let value = "world".to_string();
-            if rx.recv().is_ok() {
-                db_clone.get(&key).unwrap();
-                db_clone.insert(key, value).unwrap();
-            }
-        });
-    }
-
-    db.insert("hello".to_string(), "world".to_string()).unwrap();
-    c.bench_function("get DB key", |b| {
-        b.iter(|| {
-            for tx in senders.iter() {
-                tx.send(()).unwrap()
-            }
-        })
-    });
-}
 
 fn get_key(c: &mut Criterion) {
     let host = "127.0.0.1";
@@ -169,5 +131,5 @@ fn set_and_get_random_access(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, get_db_key, get_key, set_and_get_random_access,);
+criterion_group!(benches, get_key, set_and_get_random_access,);
 criterion_main!(benches);
