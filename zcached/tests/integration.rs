@@ -87,20 +87,24 @@ fn flushing_works() {
 #[test]
 fn test_basic_contention() {
     let db = DB::new();
-    let key = "abc".to_string();
+    let keys: Vec<_> = (0..10).map(|i| i.to_string()).collect();
     let mut lock = db.write().unwrap();
-    lock.insert(key.clone(), "value".to_string());
+    for key in &keys {
+        lock.insert(key.clone(), "value".to_string());
+    }
     drop(lock);
     let iterations = 100_000;
     let n_threads = 4;
     let join_handles: Vec<JoinHandle<_>> = (0..n_threads)
         .map(|_| {
             let db_clone = db.clone();
-            let key_clone = key.clone();
+            let keys_clone = keys.clone();
             thread::spawn(move || {
                 let now = Instant::now();
                 for _ in 0..iterations {
-                    db_clone.get(&key_clone).unwrap();
+                    for key in &keys_clone {
+                        db_clone.get(key).unwrap();
+                    }
                 }
                 now.elapsed() / iterations
             })
@@ -109,5 +113,5 @@ fn test_basic_contention() {
     let result: Result<Vec<Duration>, _> = join_handles.into_iter().map(|jh| jh.join()).collect();
     let durations = result.unwrap();
     println!("durations: {durations:?}");
-    assert!(durations.into_iter().all(|d| d < Duration::from_micros(1)));
+    assert!(durations.into_iter().all(|d| d < Duration::from_micros(5)));
 }
