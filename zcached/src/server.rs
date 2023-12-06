@@ -12,7 +12,7 @@ use crate::db::DB;
 use crate::error::Result;
 use crate::error::ServerError;
 use crate::parse_request;
-use crate::serialize_response;
+use crate::serialization::Serialize;
 use crate::Request;
 use crate::Response;
 
@@ -254,7 +254,7 @@ fn send_response<W: Write + ?Sized>(
     stream: &mut W,
     response: Response,
 ) -> io::Result<()> {
-    let bytes = serialize_response(response);
+    let bytes = response.serialize();
     stream.write_all(&bytes)?;
     stream.flush()
 }

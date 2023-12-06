@@ -6,7 +6,7 @@ use std::net::ToSocketAddrs;
 use crate::error::ClientError;
 use crate::error::Result;
 use crate::parse_response;
-use crate::serialize_request;
+use crate::serialization::Serialize;
 use crate::Request;
 use crate::Response;
 
@@ -92,7 +92,7 @@ impl Client {
         &mut self,
         request: Request,
     ) {
-        let request_bytes = serialize_request(request);
+        let request_bytes = request.serialize();
         self.stream.write_all(&request_bytes).unwrap();
         self.stream.flush().unwrap();
     }
