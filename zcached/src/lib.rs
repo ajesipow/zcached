@@ -1,6 +1,7 @@
 mod client;
 mod db;
 mod error;
+mod serialization;
 mod server;
 
 use std::str::from_utf8;
@@ -77,62 +78,6 @@ pub(crate) fn parse_response(input: &[u8]) -> Result<Option<Response>> {
         _ => return Ok(None),
     };
     Ok(Some(response))
-}
-
-pub(crate) fn serialize_request(request: Request) -> Vec<u8> {
-    match request {
-        Request::Get(key) => {
-            let mut data = Vec::with_capacity(key.len() + 5);
-            data.push(1);
-            data.extend((key.len() as u32).to_be_bytes());
-            data.extend(key.as_bytes());
-            data
-        }
-        Request::Set { key, value } => {
-            let mut data = Vec::with_capacity(key.len() + value.len() + 9);
-            data.push(2);
-            data.extend((key.len() as u32).to_be_bytes());
-            data.extend(key.as_bytes());
-            data.extend((value.len() as u32).to_be_bytes());
-            data.extend(value.as_bytes());
-            data
-        }
-        Request::Delete(key) => {
-            let mut data = Vec::with_capacity(key.len() + 5);
-            data.push(3);
-            data.extend((key.len() as u32).to_be_bytes());
-            data.extend(key.as_bytes());
-            data
-        }
-        Request::Flush => {
-            vec![4]
-        }
-    }
-}
-
-pub(crate) fn serialize_response(response: Response) -> Vec<u8> {
-    match response {
-        Response::Get(maybe_key) => {
-            let key_len = maybe_key.as_ref().map(|k| k.len()).unwrap_or(0);
-            // Reserve enough space so we don't have to reallocate
-            let mut data = Vec::with_capacity(key_len + 5);
-            data.push(1);
-            if let Some(key) = maybe_key {
-                data.extend((key.len() as u32).to_be_bytes());
-                data.extend(key.as_bytes());
-            }
-            data
-        }
-        Response::Set => {
-            vec![2]
-        }
-        Response::Delete => {
-            vec![3]
-        }
-        Response::Flush => {
-            vec![4]
-        }
-    }
 }
 
 /// Reads an element (key or value) from the buffer and advances the cursor.
